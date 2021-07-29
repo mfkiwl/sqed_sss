@@ -88,7 +88,7 @@ clk);
   assign ADDI = FORMAT_I && (funct3 == 3'b000) && (opcode == 7'b0010011);
   assign ALLOWED_I = ANDI || SLTIU || SRLI || SLTI || SRAI || SLLI || ORI || XORI || ADDI;
 
-  assign FORMAT_LW = (instruction[31:30] == 00) && (rs1 < 16) && (rd < 16);
+  assign FORMAT_LW = (instruction[31:30] == 00) && (rs1 < 16) && (rd < 16) && (imm12 < 64);
   assign LW = FORMAT_LW && (funct3 == 3'b010) && (opcode == 7'b0000011) && (rs1 == 5'b00000);
   assign ALLOWED_LW = LW;
 
@@ -100,24 +100,33 @@ clk);
   assign XOR = FORMAT_R && (funct3 == 3'b100) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
   assign SUB = FORMAT_R && (funct3 == 3'b000) && (opcode == 7'b0110011) && (funct7 == 7'b0100000);
   assign SLT = FORMAT_R && (funct3 == 3'b010) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
-  assign MULHSU = FORMAT_R && (funct3 == 3'b010) && (opcode == 7'b0110011) && (funct7 == 7'b0000001);
-  assign MULHU = FORMAT_R && (funct3 == 3'b011) && (opcode == 7'b0110011) && (funct7 == 7'b0000001);
   assign SRL = FORMAT_R && (funct3 == 3'b101) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
   assign SLL = FORMAT_R && (funct3 == 3'b001) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
   assign ADD = FORMAT_R && (funct3 == 3'b000) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
-  assign MUL = FORMAT_R && (funct3 == 3'b000) && (opcode == 7'b0110011) && (funct7 == 7'b0000001);
   assign OR = FORMAT_R && (funct3 == 3'b110) && (opcode == 7'b0110011) && (funct7 == 7'b0000000);
-  assign ALLOWED_R = AND || SLTU || MULH || SRA || XOR || SUB || SLT || MULHSU || MULHU || SRL || SLL || ADD || MUL || OR;
+  assign ALLOWED_R = AND || SLTU || SRA || XOR || SUB || SLT || SRL || SLL || ADD || OR;
 
-  assign FORMAT_SW = (instruction[31:30] == 00) && (rs2 < 16) && (rs1 < 16);
+  assign FORMAT_SW = (instruction[31:30] == 00) && (rs2 < 16) && (rs1 < 16) && (imm7 < 2);
   assign SW = FORMAT_SW && (funct3 == 3'b010) && (opcode == 7'b0100011) && (rs1 == 5'b00000);
   assign ALLOWED_SW = SW;
 
   assign NOP = (opcode == 7'b1111111);
   assign ALLOWED_NOP = NOP;
-
-  always @(posedge clk) begin
-    assume property (ALLOWED_I || ALLOWED_LW || ALLOWED_R || ALLOWED_SW || ALLOWED_NOP);
-  end
+  
+  wire sif_commit;
+  assign sif_commit = design_top.dut.sif_commit;
+  // only allow certain instructions before SIF commit
+  // in this case, prevent SW from occuring before SIF commit since it will
+  // commit only 1 cycle after issue, leading to a violation of constraint C2
+  assume_allowed_instructions_before_tc: assume property (
+                         @(posedge clk)
+                         ~sif_commit |->
+                         (ALLOWED_I || ALLOWED_LW || ALLOWED_R || ALLOWED_NOP)
+                         );
+  assume_allowed_instructions_after_tc: assume property (
+                         @(posedge clk)
+                         sif_commit |->
+                         (ALLOWED_I || ALLOWED_LW || ALLOWED_R || ALLOWED_SW || ALLOWED_NOP)
+                         );
 
 endmodule
